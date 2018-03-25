@@ -1,0 +1,92 @@
+---
+title: "08 Practical Machine Learning Project"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Assignment
+
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+## Loading data and libraries
+
+First we load libraries and data as required.
+
+```{r loading}
+suppressMessages(library(caret))
+suppressMessages(library(dplyr))
+
+training <- read.csv("./pml-training.csv", 
+                     header=T, na.strings=c("", "NA"))
+testing <- read.csv("./pml-testing.csv", 
+                    header=T, na.strings=c("", "NA"))
+```
+
+## Data cleaning
+
+First we note that of the 160 columns of data, 100 columns have no data in the testing dataset. Since we will not be able to use these predictors to predict the testing outcomes, we will discard them in both the testing and training data. This leaves 60 predictors.
+
+```{r}
+nodata <- sapply(testing, function(x) {all(is.na(x))})
+training <- training[, !nodata]
+testing <- testing[, !nodata]
+```
+
+## Pre-processing data
+
+Next we further constrain the number of predictors. Here we pre-process using PCA, which compresses the data down to 25 principal components which account for 95% of the variance in the data. We ignore the first 6 columns of data because these are factor variables which did not come from the accelerometer data and will not be used for model building.
+
+```{r}
+pp <- preProcess(training[, 7:60], method = c('pca', 'center', 'scale'), 
+                 outcome = training$classe)
+training.pp <- predict(pp, training)
+testing.pp <- predict(pp, testing)
+```
+
+Now we split the training set into two datasets: `train1` and `validation`. We will use 75% of the data (`train1`) to train the model and the other 25% (`validation`) to validate the model. 
+
+```{r}
+inT <- createDataPartition(training.pp$classe, p = 0.75, list=F)
+t1 <- training.pp[ inT, ]
+validation <- training.pp[-inT, ]
+train1 <- t1[, -(1:6)]
+```
+
+## Model fitting
+
+Now we fit a random forests model using repeated cross-validation. We expect this to provide a high degree of accuracy for this type of high-dimensional data.
+
+```{r train.model}
+set.seed(1234)
+rfm <- train( classe ~ ., data=train1 , method='rf', 
+              trControl=trainControl(method='repeatedcv', number=5, repeats=5))
+```
+
+To check the model, we use the model to predict the outcomes in the `train1` dataset. We find that the model has a 100% accuracy in this dataset (which was used to train the model). 
+
+```{r}
+t1rfm <- predict(rfm, train1)
+confusionMatrix(t1rfm, train1$classe)
+```
+
+We further check the model by using it to predict outcomes in the `validation` dataset. The model still has a >97% accuracy on an independent, out-of-sample dataset, so we predict an out-of-sample error rate of about 2-3%. 
+
+```{r}
+validationrfm <- predict(rfm, validation)
+confusionMatrix(validationrfm, validation$classe)
+```
+
+## Applying the model to the testing dataset
+
+Now we use this model on the `testing` dataset. 
+```{r apply.model}
+testingrfm <- predict(rfm, testing.pp)
+print(testingrfm)
+```
+
+
